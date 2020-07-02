@@ -1,3 +1,4 @@
+//define and list all fuction of kernel -cwb
 struct buf;
 struct context;
 struct file;
