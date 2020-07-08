@@ -50,7 +50,7 @@ struct backcmd {
 };
 
 int fork1(void);  // Fork but panics on failure.
-void panic(char*);
+void panic(char*); // printf char * to the fd 2 
 struct cmd *parsecmd(char*);
 
 // Execute cmd.  Never returns.
@@ -172,7 +172,7 @@ main(void)
 }
 
 void
-panic(char *s)
+panic(char *s) 
 {
   fprintf(2, "%s\n", s);
   exit(-1);
@@ -263,7 +263,7 @@ char whitespace[] = " \t\r\n\v";
 char symbols[] = "<|>&;()";
 
 int
-gettoken(char **ps, char *es, char **q, char **eq)
+gettoken(char **ps, char *es, char **q, char **eq) //ps move and acquire the first word of cmd or out file
 {
   char *s;
   int ret;
