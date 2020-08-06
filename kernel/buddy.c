@@ -251,19 +251,19 @@ bd_mark(void *start, void *stop)
 int
 bd_initfree_pair(int k, int bi) {
   int buddy = (bi % 2 == 0) ? bi+1 : bi-1;
-  //if(bi>buddy)
-  //{
-  //  int temp;
-  //  temp=bi;
-  //  bi=buddy;
-  //  buddy=temp;
-  //}
+  if(bi<buddy)
+  {
+    int temp;
+    temp=bi;
+    bi=buddy;
+    buddy=temp;
+  }
   int free = 0;
   if(bit_isset(bd_sizes[k].alloc, bi/2)) {
     // one of the pair is free
 	printf("bi %p,buddy,%p the size %d\n",addr(k,bi),addr(k,buddy),BLK_SIZE(k));
     free = BLK_SIZE(k);
-    if(addr(k,buddy)>=freespace_start&&addr(k,buddy)<freespace_end)
+    if(addr(k,buddy)>=freespace_start&&addr(k,buddy)+BLK_SIZE(k)<=freespace_end)
       lst_push(&bd_sizes[k].free, addr(k, buddy));   // put buddy on free list
     else
       lst_push(&bd_sizes[k].free, addr(k, bi));      // put bi on free list
@@ -275,7 +275,7 @@ bd_initfree_pair(int k, int bi) {
 // are only two pairs that may have a buddy that should be on free list:
 // bd_left and bd_right.
 int
-bd_initfree(void *bd_left, void *bd_right) {
+bd_initfree(void *bd_left, void *bd_right){
   int free = 0;
 
   for (int k = 0; k < MAXSIZE; k++) {   // skip max size
