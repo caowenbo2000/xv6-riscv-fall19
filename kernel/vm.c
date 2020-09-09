@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -16,6 +18,29 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 extern char trampoline[]; // trampoline.S
 
 void print(pagetable_t);
+
+int uvmcheck_guard(pagetable_t pagetable,uint64 va);
+
+//author : cwb
+
+void vmprint(pagetable_t pa,int deep)
+{
+	if(deep==1)
+	printf("page table %p\n",pa);
+	for(int i=0;i<512;i++)
+	{
+		if(pa[i]&PTE_V||pa[i]&PTE_X&PTE_W&PTE_R)
+		{
+			if(deep==1) printf("..");
+			if(deep==2) printf(".. ..");
+			if(deep==3) printf(".. .. ..");
+			pte_t pte=pa[i];
+		    printf("%d: pte %p pa %p\n",i,pte,PTE2PA(pte));
+			pagetable_t child=(pagetable_t)PTE2PA(pte);
+			if(deep!=3) vmprint(child,deep+1);
+		}
+	}
+}
 
 /*
  * create a direct-map page table for the kernel and
@@ -79,7 +104,11 @@ static pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
   if(va >= MAXVA)
-    panic("walk");
+   {
+		printf("va : %p MAXVA : %p\n",va,MAXVA);
+		return 0;
+		//panic("walk");
+	}
 
   for(int level = 2; level > 0; level--) {
     pte_t *pte = &pagetable[PX(level, va)];
@@ -103,15 +132,29 @@ walkaddr(pagetable_t pagetable, uint64 va)
 {
   pte_t *pte;
   uint64 pa;
-
   if(va >= MAXVA)
     return 0;
-
+  struct proc *p=myproc();
   pte = walk(pagetable, va, 0);
-  if(pte == 0)
-    return 0;
-  if((*pte & PTE_V) == 0)
-    return 0;
+  if(pte == 0||(*pte & PTE_V)==0)
+  {
+    if(va>=myproc()->sz||uvmcheck_guard(pagetable,va))return 0;
+	char *mem;
+	mem=kalloc();
+	if(mem==0) return 0;
+	memset(mem,0,PGSIZE);
+	uint64 temp = PGROUNDDOWN(va);
+    int map_ok = mappages(p->pagetable,temp,PGSIZE,(uint64)mem,PTE_W|PTE_X|PTE_R|PTE_U);
+    if(map_ok!=0) 
+    {
+      printf("walkaddr: did not map\n");
+	  kfree(mem);
+	  return 0;
+    }
+	//printf("in walkaddr\n");
+	pte=walk(pagetable,va,0);
+ }
+
   if((*pte & PTE_U) == 0)
     return 0;
   pa = PTE2PA(*pte);
@@ -185,13 +228,16 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 size, int do_free)
   uint64 pa;
 
   a = PGROUNDDOWN(va);
+  //printf("a = %p",a);
   last = PGROUNDDOWN(va + size - 1);
   for(;;){
+	if(a>MAXVA) break;
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+    {
+		goto unmapend;
+	}
     if((*pte & PTE_V) == 0){
-      printf("va=%p pte=%p\n", a, *pte);
-      panic("uvmunmap: not mapped");
+		goto unmapend;
     }
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
@@ -200,6 +246,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 size, int do_free)
       kfree((void*)pa);
     }
     *pte = 0;
+unmapend:
     if(a == last)
       break;
     a += PGSIZE;
@@ -326,9 +373,9 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+	 continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+	  continue;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
@@ -357,6 +404,7 @@ uvmclear(pagetable_t pagetable, uint64 va)
   if(pte == 0)
     panic("uvmclear");
   *pte &= ~PTE_U;
+  *pte |= PTE_G;
 }
 
 // Copy from kernel to user.
@@ -450,4 +498,16 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+int 
+uvmcheck_guard(pagetable_t pagetable, uint64 va)
+{
+	if(va>=MAXVA) return 1;
+	pte_t *pte = walk(pagetable,va,0);
+	if(pte==0)
+	return 0;
+	if(*pte & PTE_G)
+	return 1;
+	return 0;
 }

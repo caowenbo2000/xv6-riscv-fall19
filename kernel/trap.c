@@ -67,12 +67,48 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } //cwb add
+	else if(r_scause()==13||r_scause()==15)
+	{
+	  if(r_stval()>=myproc()->sz||r_stval()>=MAXVA)
+	  {
+		//printf("trap 13 or 15 :higher than sz\n");
+	    p->killed = 1;
+		goto end;
+	  }
+	  if(uvmcheck_guard(myproc()->pagetable,r_stval()))
+	  {
+	    printf("trap 13 or 15 :lower than sp\n");
+	    p->killed = 1;
+		goto end;
+	  }
+	  char *mem;
+	  mem = kalloc();
+	  if(mem==0) 
+	  {
+	    //printf("trap 13 or 15: did not kalloc mem\n");
+		p->killed = 1;
+		goto end;
+	  }
+	  memset(mem,0,PGSIZE);
+	  int va = PGROUNDDOWN(r_stval());
+	  //printf("in trap 13 or 15: sz : %p,va %p\n",myproc()->sz,va);
+	  int map_ok = mappages(myproc()->pagetable,va,PGSIZE,(uint64)mem,PTE_W|PTE_X|PTE_R|PTE_U);
+	  if(map_ok!=0) 
+	  {
+	    printf("trap 13 or 15: did not map\n");
+		kfree(mem);
+	    p->killed = 1;
+	    goto end;
+	  }
+	}
+  else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
 
+end:
   if(p->killed)
     exit(-1);
 

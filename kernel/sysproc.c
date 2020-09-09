@@ -44,11 +44,18 @@ sys_sbrk(void)
   int addr;
   int n;
 
-  if(argint(0, &n) < 0)
+  if(argint(0, &n) < 0)//read 0th ip
     return -1;
-  addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
+  addr=myproc()->sz;
+  int newsz=PGROUNDUP(myproc()->sz+n);
+  myproc()->sz=newsz;
+  if(n<=0)
+  {
+//	printf("n<0:sbrk is wrong");
+	myproc()->sz=uvmdealloc(myproc()->pagetable,addr,newsz); 
+  }
+  //if(growproc(n) < 0)
+    //return -1;
   return addr;
 }
 

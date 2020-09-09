@@ -9,6 +9,16 @@
 
 static int loadseg(pde_t *pgdir, uint64 addr, struct inode *ip, uint offset, uint sz);
 
+int strcmp(char *p,char *q)
+{
+  for(int i=0;p[i]||q[i];i++)
+  {
+	if(p[i]!=q[i])
+	return 0;
+  }
+  return 1;
+}
+
 int
 exec(char *path, char **argv)
 {
@@ -37,7 +47,7 @@ exec(char *path, char **argv)
 
   if((pagetable = proc_pagetable(p)) == 0)
     goto bad;
-
+  
   // Load program into memory.
   sz = 0;
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
@@ -112,6 +122,8 @@ exec(char *path, char **argv)
   p->tf->epc = elf.entry;  // initial program counter = main
   p->tf->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
+  if(strcmp(path,"/init"))
+  vmprint(pagetable,1);
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:
@@ -151,3 +163,4 @@ loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz
   
   return 0;
 }
+
