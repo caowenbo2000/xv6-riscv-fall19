@@ -21,13 +21,20 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
+  char *start;
+  uint8 *ref;
 } kmem;
 
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
-  freerange(end, (void*)PHYSTOP);
+  uint64 page_num=(PHYSTOP - (uint64)end) >> 12; // a page is 1 << 12,and the ref of it is 1 << 8
+  kmem.ref = (uint8 *)end;
+  kmem.start = end + (1<<8) * page_num;
+  kmem.start = (char *)PGROUNDUP((uint64)kmem.start);
+  memset(kmem.ref,0, page_num * sizeof(uint));
+  freerange(kmem.start, (void*)PHYSTOP);
 }
 
 void
@@ -48,7 +55,7 @@ kfree(void *pa)
 {
   struct run *r;
 
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < kmem.start || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
   // Fill with junk to catch dangling refs.
@@ -59,6 +66,10 @@ kfree(void *pa)
   acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
+
+  uint64 index = ((uint64)pa - (uint64)kmem.start)>>12;//reset ref num
+  kmem.ref[index] = 0;
+  
   release(&kmem.lock);
 }
 
@@ -72,11 +83,48 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
+  uint64 index = ((uint64)r - (uint64)kmem.start)>>12;//set ref num
   if(r)
+  {
     kmem.freelist = r->next;
+    kmem.ref[index] = 1;
+  }
   release(&kmem.lock);
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+
+int kborrow(void *pa)
+{
+	if((uint64)pa%PGSIZE||(char *)pa<kmem.start||(uint64)pa>PHYSTOP)
+	panic("kborrow");
+    uint64 index = ((uint64)pa - (uint64)kmem.start)>>12;//add ref num
+	acquire(&kmem.lock);
+	
+    kmem.ref[index]++;
+    int	ret = (int) kmem.ref[index];
+
+	release(&kmem.lock);
+//	printf("borrow:ret is %d\n",ret);
+	return ret;
+	
+}
+
+void kdrop(void *pa)
+{
+	if((uint64)pa%PGSIZE||(char *)pa<kmem.start||(uint64)pa>PHYSTOP)
+	panic("kdrop");
+    uint64 index = ((uint64)pa - (uint64)kmem.start)>>12;//minus ref num
+	acquire(&kmem.lock);
+
+    int do_free = --kmem.ref[index];
+	release(&kmem.lock);
+	
+	if(do_free==0)
+	kfree(pa);
+	
+}
+	

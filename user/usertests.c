@@ -1595,7 +1595,7 @@ sbrkbasic(char *s)
     printf("%s: sbrk(<toomuch>) returned %p\n", a);
     exit(1);
   }
-
+  printf("too much done\n");
   // can one sbrk() less than a page?
   a = sbrk(0);
   for(i = 0; i < 5000; i++){

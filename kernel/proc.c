@@ -230,6 +230,7 @@ growproc(int n)
   struct proc *p = myproc();
 
   sz = p->sz;
+  if(sz>=MAXVA)return -1;
   if(n > 0){
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;

@@ -67,12 +67,50 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } 
+  else if(r_scause()==15)  //add some code to copy on write
+  {
+    uint64 va = PGROUNDDOWN(r_stval());
+    if(va>=MAXVA)
+    {
+      p->killed=1;
+      goto end;
+    }
+    pte_t *pte=ptewalk(p->pagetable,va);
+    if(pte==0||(*pte&PTE_V)==0||(*pte&PTE_U)==0||(*pte&PTE_COW)==0)
+	{
+	  printf("r_scause()=15:filed\n");
+	  p->killed=1;
+	  goto end;
+	}
+    void *mem=kalloc();
+	if(mem==0)
+	{
+	  printf("trap 15: kalloc filed\n");
+	  p->killed=1;
+	  goto end;
+	}
+	uint64 pa = PTE2PA(*pte);
+	memmove(mem,(void *)pa,PGSIZE);
+	uint flags = PTE_FLAGS(*pte);
+	flags&=~PTE_COW;
+	flags|=PTE_W;
+	uvmunmap(p->pagetable,va,PGSIZE,1);
+	if(mappages(p->pagetable,va,PGSIZE,(uint64)mem,flags)!=0)
+	{
+	  printf("mappage failed\n");
+	  kfree(mem);
+	  p->killed=1;
+	  goto end;
+	}
+	//printf("copy on write:OK\n");
+   }
+  else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
-
+  end:
   if(p->killed)
     exit(-1);
 
@@ -146,6 +184,8 @@ kerneltrap()
   if((which_dev = devintr()) == 0){
     printf("scause %p\n", scause);
     printf("sepc=%p stval=%p\n", r_sepc(), r_stval());
+	printf("%p\n",PHYSTOP);
+	printf("%p\n",MAXVA);
     panic("kerneltrap");
   }
 
