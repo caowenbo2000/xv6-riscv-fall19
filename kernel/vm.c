@@ -35,7 +35,7 @@ void vmprint(pagetable_t pa,int deep)
 			if(deep==2) printf(".. ..");
 			if(deep==3) printf(".. .. ..");
 			pte_t pte=pa[i];
-		    printf("%d: pte %p pa %p\n",i,pte,PTE2PA(pte));
+		    printf("%d: pte %p pa %p\n",i,pte&~PTE_G,PTE2PA(pte));
 			pagetable_t child=(pagetable_t)PTE2PA(pte);
 			if(deep!=3) vmprint(child,deep+1);
 		}
@@ -105,7 +105,7 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 {
   if(va >= MAXVA)
    {
-		printf("va : %p MAXVA : %p\n",va,MAXVA);
+//		printf("va : %p MAXVA : %p\n",va,MAXVA);
 		return 0;
 		//panic("walk");
 	}
