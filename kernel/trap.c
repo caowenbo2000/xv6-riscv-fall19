@@ -78,7 +78,17 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
+  {//cwb add
+	p->interrupt_num++;
+	if(p->interrupt_val>0&&p->interrupt_num>=p->interrupt_val&&p->running==0)
+	{
+	  p->running=1;
+	  p->snapshot=*p->tf;
+	  p->tf->epc=(uint64)p->handle;
+	}
+//	printf("timer interupt\n");
     yield();
+  }
 
   usertrapret();
 }

@@ -95,3 +95,24 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+uint64 
+sys_sigalarm(void)
+{
+  int tick;
+  struct proc *p=myproc();
+  uint64 handle_addr;
+  argint(0,&tick);
+  argaddr(1,&handle_addr);
+  p->interrupt_val=tick;
+  p->handle=(void(*)())handle_addr;
+  return 0;
+}
+uint64 sys_sigreturn(void)
+{
+  struct proc *p=myproc();
+  p->interrupt_num-=p->interrupt_val;
+  *p->tf=p->snapshot;
+  p->running=0;
+  
+  return 0;
+}

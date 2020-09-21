@@ -122,6 +122,12 @@ found:
   memset(&p->context, 0, sizeof p->context);
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+  //cwb add
+  p->interrupt_num=0;
+  p->interrupt_val=-1;
+  p->running=0;
+  p->handle=0;
+
 
   return p;
 }
@@ -681,3 +687,5 @@ procdump(void)
     printf("\n");
   }
 }
+//uint64 sigalarm(void){return 0;};
+//uint64 sigreturn(void){return 0;};
