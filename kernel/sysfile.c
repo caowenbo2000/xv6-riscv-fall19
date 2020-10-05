@@ -292,9 +292,11 @@ sys_open(void)
   struct inode *ip;
   int n;
 
+  //uint mypid=myproc()->pid;
   if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
     return -1;
 
+  //printf("openpath : %s\n",path);
   begin_op(ROOTDEV);
 
   if(omode & O_CREATE){
@@ -314,6 +316,46 @@ sys_open(void)
       end_op(ROOTDEV);
       return -1;
     }
+	}
+
+    if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
+      iunlockput(ip);
+      end_op(ROOTDEV);
+      return -1;
+    }
+	//printf("NOFOLLOW:%d\n",O_NOFOLLOW&omode);
+    if(!(O_NOFOLLOW&omode))
+    {
+      struct inode *nxt;
+  	  int cnt=0;
+  	  while(ip->type == T_SYMLINK)
+  	  {
+  	    //printf("%d\n",cnt);
+  	    cnt++;
+  	    if((nxt = namei(ip->path)) == 0)
+        {
+  	      iunlockput(ip);
+  	      end_op(ROOTDEV);
+  		  return -1;
+  	    }   
+  	    iunlockput(ip);
+		ilock(nxt);
+  	    ip = nxt;
+  	    if(cnt>10)
+  	    {
+		  iunlockput(ip);
+  		  end_op(ROOTDEV);
+  		  return -1;
+  	    }
+  	  }
+    }
+  //printf("this type is %d pid is %d\n",ip->type,mypid);
+
+  
+  if(ip->type == T_DIR && omode != O_RDONLY){
+    iunlockput(ip);
+    end_op(ROOTDEV);
+    return -1;
   }
 
   if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
@@ -321,7 +363,7 @@ sys_open(void)
     end_op(ROOTDEV);
     return -1;
   }
-
+  
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
       fileclose(f);
@@ -329,14 +371,15 @@ sys_open(void)
     end_op(ROOTDEV);
     return -1;
   }
-
   if(ip->type == T_DEVICE){
     f->type = FD_DEVICE;
     f->major = ip->major;
     f->minor = ip->minor;
-  } else {
+  } 
+  else {
     f->type = FD_INODE;
   }
+
   f->ip = ip;
   f->off = 0;
   f->readable = !(omode & O_WRONLY);
@@ -483,3 +526,29 @@ sys_pipe(void)
   return 0;
 }
 
+int
+sys_symlink(void)
+{
+  struct inode* ip;
+  char path[MAXPATH],target[MAXPATH];
+  if(argstr(0,target,MAXPATH)<0||argstr(1,path,MAXPATH)<0)
+  {
+    return -1;
+  }
+  //printf("creat symlnk target : %s\t",target);
+  //printf("path:%s\n",path);
+  begin_op(ROOTDEV);
+
+  if((ip=create(path,T_SYMLINK,0,0))==0)
+  {
+    end_op(ROOTDEV);
+    return -1;
+  }
+  int len=strlen(target);
+  len = len>MAXPATH?MAXPATH:len;
+  memset(ip->path,0,MAXPATH);
+  memmove(ip->path,target,len);
+  iunlockput(ip);
+  end_op(ROOTDEV);
+  return 0;
+}
