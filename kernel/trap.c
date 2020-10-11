@@ -3,8 +3,12 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "spinlock.h"
+#include "sleeplock.h"
 #include "proc.h"
 #include "defs.h"
+#include "vma.h"
+#include "fs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -70,12 +74,65 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  }
+  else if(r_scause()==13||r_scause()==15)
+  {
+    struct proc* p = myproc();
+    uint64 va=r_stval();
+	printf("trap:the va = %p\n",va);
+	int idx;
+	struct vma* v;
+	for(idx = 0 ; idx < NPVMA ; idx++)
+	{
+	  if(v=p->vma[idx] && va>=p->vma[idx]->start && va<p->vma[idx]->end)
+	  {
+	    break;
+	  }
+	}
+	if(idx == NPVMA)
+	{
+	  printf("***1exit\n");
+	  p->killed=1;
+	  goto the_end;
+	}
+	v=p->vma[idx];
+	void* mem; 
+	if((mem=kalloc())==0)
+	{
+	  printf("***2exit\n");
+	  p->killed=1;
+	  goto the_end;
+	}
+	printf("hello");
+	int perm=PTE_R|PTE_U;
+	if(v->prot&PROT_WRITE)
+	  perm|=PTE_W;
+	uint64 a = PGROUNDDOWN(va);
+	if(mappages(p->pagetable, a, PGSIZE, (uint64)mem, perm) != 0)
+	{
+	  printf("***3exit\n");
+	  kfree(mem);
+	  p->killed = 1;
+	  goto the_end;;
+	}
+	struct file* f = v->file;
+	memset(mem,0,PGSIZE);
+	int r=0;
+	struct inode* inode=f->ip;
+	ilock(inode);
+	f->off=a - (uint64)v->ostart;
+	if((r=readi(inode,0,(uint64)mem,f->off,PGSIZE))>0)
+	  f->off+=r;
+	iunlock(inode);
+	printf("trap finish\n");
+
+  }
+  else {
     printf("usertrap(): unexpected scause %p (%s) pid=%d\n", r_scause(), scause_desc(r_scause()), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
-
+the_end:
   if(p->killed)
     exit(-1);
 

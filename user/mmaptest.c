@@ -4,6 +4,7 @@
 #include "kernel/stat.h"
 #include "kernel/riscv.h"
 #include "kernel/fs.h"
+#include "kernel/vma.h"
 #include "user/user.h"
 
 void mmap_test();
@@ -16,6 +17,7 @@ int
 main(int argc, char *argv[])
 {
   mmap_test();
+  printf("finish the test\n");
   fork_test();
   printf("mmaptest: all tests succeeded\n");
   exit(0);
@@ -112,9 +114,12 @@ mmap_test(void)
   char *p = mmap(0, PGSIZE*2, PROT_READ, MAP_PRIVATE, fd, 0);
   if (p == MAP_FAILED)
     err("mmap (1)");
+  //printf("begin v1\n");
   _v1(p);
+  //printf("begin unmap\n");
   if (munmap(p, PGSIZE*2) == -1)
     err("munmap (1)");
+  //printf("begin the second mmap\n");
 
   // should be able to map file opened read-only with private writable
   // mapping

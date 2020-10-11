@@ -12,3 +12,6 @@
 #define FSSIZE       2000  // size of file system in blocks
 #define MAXPATH      128   // maximum file path name
 #define NDISK        2
+//to complete mmaplab
+#define NVMA         20
+#define NPVMA        5

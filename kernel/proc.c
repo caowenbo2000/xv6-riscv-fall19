@@ -8,6 +8,7 @@
 #include "file.h"
 #include "proc.h"
 #include "defs.h"
+#include "vma.h"
 
 struct cpu cpus[NCPU];
 
@@ -284,7 +285,20 @@ fork(void)
   np->state = RUNNABLE;
 
   release(&np->lock);
+  //copy the mmap area
 
+  struct vma* v;
+  for(int idx = 0;idx < NPVMA ; idx++)
+  {
+    if(p->vma[idx]&&p->vma[idx]->valid)
+	{
+	  if((v = vmaalloc())==0)
+	  break;
+	  *v =  *p->vma[idx];
+	  np->vma[idx]=v;
+	  filedup(v->file);
+	}
+  }
   return pid;
 }
 
@@ -325,6 +339,16 @@ exit(int status)
   if(p == initproc)
     panic("init exiting");
 
+  //close the map;
+  //did not lock 
+  for(int idx=0;idx<NPVMA;idx++)
+  {
+    if(p->vma[idx]&&p->vma[idx]->valid==1)
+	{
+	   p->vma[idx]->valid=0;
+	   fileclose(p->vma[idx]->file);
+	}
+  }
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
     if(p->ofile[fd]){
@@ -689,4 +713,113 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+uint64 mmap(uint64 *addr,int length,int prot,int flags,int fd,int off)
+{
+  
+  if(addr||off)
+  panic("donot suport the args");
+
+  struct proc* p;
+  struct vma* v;
+  struct file* f;
+  p=myproc();
+  f=p->ofile[fd];
+  printf("enter the mmap\n");
+  if(fd<0 || fd>NOFILE || f==0)
+  return -1;
+  if(!f->writable&&(prot&PROT_WRITE)&&(flags&MAP_SHARED))
+  return -1;
+  if(flags&MAP_PRIVATE&MAP_SHARED)
+  return -1;
+  if((v=vmaalloc())==0)
+  return -1;
+  int idx=0;
+  for(idx=0;idx<NPVMA;idx++)
+  {
+    if(p->vma[idx]==0||p->vma[idx]->valid==0)
+	{
+	  break;
+	}
+  }
+  if(idx==NPVMA)
+  {
+    return -1;
+  }
+  p->vma[idx] = v;
+  v->ostart=(void*)p->sz;
+  v->start=(void*)p->sz;
+  v->end=PGROUNDUP((uint64)(v->start+length));
+  v->flags=flags;
+  v->prot=prot;
+  v->offset=off;
+  v->file = f;
+  p->sz=(uint64)v->end;
+  filedup(f);
+  printf("finish mmap\n");
+  
+  return v->ostart;
+}
+int munmap(void *addr,int length)
+{
+  printf("begin munmap"); 
+  struct vma* v=0;
+  int idx=0;
+  struct proc* p=myproc();
+  for(idx=0;idx<NPVMA;idx++) //find the map
+  {
+    if(p->vma[idx]==0) continue;
+    printf("%p <%p %p>\n",addr,p->vma[idx]->start,p->vma[idx]->end);
+    if(addr>=p->vma[idx]->start&&addr<p->vma[idx]->end)
+	break;
+  }
+  if(idx==NPVMA||length<0)
+  {
+    printf("cant find addr\n");
+    return -1;
+  }
+  v=p->vma[idx];
+  
+  void * end;
+  end = addr + length > v->end ? v->end : addr + length;
+  if(addr > v->start && end < v->end)
+  {
+    panic("bad panic");
+  }
+  
+  struct file* f=v->file;
+  if(v->flags&MAP_SHARED) //write back to the disk
+  {
+    ilock(f->ip);
+	if(addr - v->ostart < f->ip->size)
+	{
+      f->off = addr - v->ostart;	
+	  int real_len = f->ip->size - f->off < end - addr ? f->ip->size - f->off : end - addr;
+	  iunlock(f->ip);
+	  if(filewrite(f,addr,real_len)<0)
+	  {
+	    printf("cannt write\n");
+	    return -1;
+	  }
+	}
+	else
+	  iunlock(f->ip);
+  }
+  if(addr==v->start&&end==v->end) //maybe need lock here
+  {
+	fileclose(f);
+	v->valid=0;
+	p->vma[idx]=0;
+  }
+  else if(addr==v->start)
+  {
+    v->start=end;
+  }
+  else if(end==v->end)
+  {
+    v->end=addr;
+  }
+  uvmunmap(p->pagetable,addr,end,1);
+  return 0;
 }
