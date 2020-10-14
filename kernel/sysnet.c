@@ -87,6 +87,89 @@ bad:
 // and writing for network sockets.
 //
 
+int sockread(struct sock *so, uint64 addr,int n)
+{
+  acquire(&so->lock);
+  while(mbufq_empty(&so->rxq))
+  {
+    sleep(&so->rxq,&so->lock);
+  }
+  
+  struct mbuf* mbuf = so->rxq.head;
+  char *buf = mbuf->head;
+  int dofree = 0;
+  if(n>=mbuf->len)
+  {
+    mbufq_pophead(&so->rxq);
+    n = mbuf->len;
+	dofree=1;
+  }
+  else 
+  {
+    mbufpull(mbuf,n);
+  }
+  release(&so->lock);
+  if(copyout(myproc()->pagetable,addr,buf,n)==-1)
+  {
+    if(dofree)
+	  mbuffree(mbuf);
+	return -1;
+  }
+  if(dofree)
+    mbuffree(mbuf);
+  return n;
+  
+}
+
+int sockwrite(struct sock *so,uint64 addr ,int n)
+{
+  if(n>MAX_UDP_PAYLOAD)
+    return -1;
+  struct mbuf *mbuf = mbufalloc(MBUF_DEFAULT_HEADROOM);
+  char *buf = mbuf->head;
+  if(copyin(myproc()->pagetable,buf,addr,n)==-1)
+  {
+    mbuffree(mbuf);
+	return -1;
+  }
+  mbufput(mbuf,n);
+  net_tx_udp(mbuf,so->raddr,so->lport,so->rport);;
+  return n;
+}
+
+
+void sockclose(struct sock* so)
+{
+  acquire(&lock);
+  struct sock *prev,*pos;
+  prev=pos=sockets;
+  while(pos)
+  {
+    if(pos == so)
+	{
+	  if(prev==pos)
+	    sockets = pos->next;
+	  else 
+	    prev->next = pos->next;
+	  release(&lock);
+	  struct mbuf *m=pos->rxq.head;
+	  struct mbuf *to_free;
+	  while(m)
+      {
+	    to_free = m;
+	    m = m->next;
+	    mbuffree(to_free);
+	  }
+	  kfree((void *)so);
+	  return ;
+	}
+	prev = pos;
+	pos = pos->next;
+  }
+  release(&lock);
+  panic("cannt find");
+  
+}
 // called by protocol handler layer to deliver UDP packets
 void
 sockrecvudp(struct mbuf *m, uint32 raddr, uint16 lport, uint16 rport)
@@ -98,5 +181,25 @@ sockrecvudp(struct mbuf *m, uint32 raddr, uint16 lport, uint16 rport)
   // any sleeping reader. Free the mbuf if there are no sockets
   // registered to handle it.
   //
+  struct sock* pos;
+  acquire(&lock);
+  pos = sockets;
+  while(pos)
+  {
+    if(pos->raddr==raddr&&
+	   pos->lport==lport&&
+	   pos->rport==rport)
+	{
+      acquire(&pos->lock);
+	  mbufq_pushtail(&pos->rxq,m);
+	  release(&pos->lock);
+	  release(&lock);
+	  wakeup(&pos->rxq);
+	  return;
+	}
+	pos=pos->next;
+
+  }
   mbuffree(m);
+  release(&lock);
 }
